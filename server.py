@@ -1,24 +1,22 @@
-# --- ADD AT THE VERY TOP ---
-from gevent import monkey
-monkey.patch_all()
-
 import serial
 import time
-import threading 
+import threading
 import json
 import socket
 import struct
+import subprocess
+import os
+import signal
+import atexit
+import logging
 from flask import Flask, render_template, Response, request, jsonify
 from flask_socketio import SocketIO
-
-import subprocess
-import atexit
-import signal
-import os
+from gpiozero import AngularServo
+from gpiozero.pins.pigpio import PiGPIOFactory
 
 # --- Hardware Imports (Mockable) ---
 try:
-    from gpiozero import AngularServo
+    # from gpiozero import AngularServo # Already imported above
     GPIO_AVAILABLE = True
 except ImportError:
     GPIO_AVAILABLE = False
