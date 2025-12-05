@@ -326,38 +326,149 @@ def init_serial():
         return False
 
 # --- GStreamer ---
+# --- Logging ---
+import logging
+logging.basicConfig(filename='server.log', level=logging.INFO, 
+                    format='%(asctime)s %(levelname)s: %(message)s')
+
+# --- GStreamer ---
+class FrameReader(threading.Thread):
+    def __init__(self, process):
+        super().__init__()
+        self.process = process
+        self.latest_frame = None
+        self.running = True
+        self.daemon = True
+
+    def run(self):
+        while self.running and self.process.poll() is None:
+            try:
+                # Read frame header (multipart boundary)
+                # This is a simplified reader assuming MJPEG multipart stream
+                # In a robust production env, we might want a more sophisticated parser
+                # But for now, we just read chunks to keep the pipe draining
+                chunk = self.process.stdout.read(4096)
+                if not chunk: break
+                # We are not actually parsing frames here to save CPU, 
+                # just draining the pipe. 
+                # For the actual video feed, we might need a different approach 
+                # if we want to broadcast to multiple clients.
+                # However, the original issue is BLOCKING.
+                # So let's just ensure we read everything.
+                
+                # WAIT! The original code yielded chunks directly to the client.
+                # If no client is connected, the pipe fills up and blocks.
+                # We need to buffer the LATEST frame and yield that.
+                pass 
+            except Exception as e:
+                logging.error(f"FrameReader Error: {e}")
+                break
+        logging.info("FrameReader thread stopped")
+
+# Actually, a better approach for MJPEG stream from GStreamer to Flask 
+# is to let GStreamer push to a UDP sink or similar, OR just read and discard if no clients.
+# But to keep it simple and compatible with the current setup:
+# We will use a global variable to store the latest frame (if we were parsing)
+# OR we just read and discard if no one is listening?
+# The issue is `generate_frames` is only called when a client connects.
+# If no client, `stream_process` is running but stdout is not being read. -> BLOCK.
+
+# FIXED APPROACH:
+# Start a background thread that ALWAYS reads stdout.
+# It puts chunks into a queue or just broadcasts them?
+# Since Flask `Response` needs a generator, we can use a specialized class.
+
+class NonBlockingStreamReader:
+    def __init__(self, stream):
+        self.stream = stream
+        self.q = [] # We'll just keep the last few chunks? No, that's complex.
+        # Simple fix: Just read continuously in a thread.
+        # If a client is connected, they get the data.
+        # If not, data is dropped? 
+        # But we need the data for the client!
+        
+        # Let's use a list of active queues (one per client)
+        self.clients = []
+        self.lock = threading.Lock()
+        self.running = True
+        self.thread = threading.Thread(target=self._populate_queues)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def _populate_queues(self):
+        while self.running:
+            try:
+                chunk = self.stream.read(4096)
+                if not chunk: break
+                with self.lock:
+                    if self.clients:
+                        for q in self.clients:
+                            try: q.put_nowait(chunk)
+                            except: pass # Queue full, drop frame for that client
+            except Exception as e:
+                logging.error(f"StreamReader Error: {e}")
+                break
+
+    def get_client_queue(self):
+        import queue
+        q = queue.Queue(maxsize=10)
+        with self.lock:
+            self.clients.append(q)
+        return q
+
+    def remove_client_queue(self, q):
+        with self.lock:
+            if q in self.clients:
+                self.clients.remove(q)
+
+reader = None
+
 def start_streamer():
-    global stream_process
+    global stream_process, reader
     
     # Stop existing stream if any
     if stream_process:
         stream_process.terminate()
         stream_process.wait()
         stream_process = None
+        reader = None
 
     mode = config.get('camera_mode', 'siyi')
     command = get_gstreamer_command(mode)
+    logging.info(f"Starting GStreamer in [{mode}] mode...")
     print(f"Starting GStreamer in [{mode}] mode...")
     
     try:
         stream_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**8)
-        print(f"GStreamer started PID: {stream_process.pid}")
+        logging.info(f"GStreamer started PID: {stream_process.pid}")
+        
+        # Start the non-blocking reader
+        reader = NonBlockingStreamReader(stream_process.stdout)
+
         def log_errors():
             if stream_process and stream_process.stderr:
-                for line in stream_process.stderr: print(f"[gst] {line.decode().strip()}")
+                for line in stream_process.stderr: 
+                    msg = f"[gst] {line.decode().strip()}"
+                    print(msg)
+                    logging.error(msg)
         socketio.start_background_task(log_errors)
     except Exception as e:
+        logging.error(f"GStreamer failed: {e}")
         print(f"🛑 GStreamer failed: {e}")
 
 def generate_frames():
-    global stream_process
-    if not stream_process: return
+    global reader
+    if not reader: return
+    
+    q = reader.get_client_queue()
     try:
         while True:
-            chunk = stream_process.stdout.read(4096)
-            if not chunk: break
+            chunk = q.get()
             yield chunk
-    except Exception: pass
+    except GeneratorExit:
+        reader.remove_client_queue(q)
+    except Exception:
+        reader.remove_client_queue(q)
 
 # --- Routes & Events ---
 @app.route('/')
@@ -473,7 +584,8 @@ def get_cpu_temp():
         with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
             temp = float(f.read()) / 1000.0
             return temp
-    except:
+    except Exception as e:
+        logging.error(f"Error reading temp: {e}")
         return 0.0 # Fallback/Mock
 
 def system_monitor_thread():
