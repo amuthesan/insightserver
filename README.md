@@ -9,8 +9,11 @@ A comprehensive control system for Insight rover, featuring real-time video stre
 - **SIYI Gimbal Control**: Full control over SIYI gimbals using the TCP protocol (Yaw/Pitch/Roll).
 - **Rover Control**: Serial communication for controlling rover movement (Left/Right motor control).
 - **Joystick Support**: Integrated joystick support for intuitive gimbal control.
-- **Automatic Recording**: Automatically starts/stops camera recording based on the vehicle's arming state.
-- **WebSocket Telemetry**: Real-time telemetry updates for battery voltage, attitude (roll/pitch), and connection status.
+- **Dual Camera Support**: Switch between SIYI A8 Mini (RTSP) and Raspberry Pi Camera (CSI/USB).
+- **Tilt Servo Control**: Control a tilt servo using the right joystick when in Pi Camera mode.
+- **Web Configuration**: dedicated page to toggle camera modes.
+- **Automatic Recording**: Starts recording on the SIYI camera when the rover is armed.
+- **WebSocket Telemetry**: Real-time data for battery, attitude, and connection status.
 
 ## Getting Started
 
@@ -34,4 +37,4 @@ A comprehensive control system for Insight rover, featuring real-time video stre
 
 ## Version
 
-Current Version: **v0.2 Beta**
+Current Version: **v0.3 Beta**

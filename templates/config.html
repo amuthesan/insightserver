@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - Insight Server</title>
+    <script src="/static/tailwind.js"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+    </style>
+</head>
+
+<body class="antialiased min-h-screen flex flex-col items-center justify-center p-6">
+
+    <div class="w-full max-w-md bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-gray-800">System Configuration</h1>
+            <a href="/" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">Back to Dashboard</a>
+        </div>
+
+        <div class="p-6 space-y-6">
+
+            <div>
+                <label class="text-sm font-bold text-gray-500 uppercase tracking-wide block mb-3">Camera Source</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="setMode('siyi')" id="btn-siyi"
+                        class="p-4 rounded-lg border-2 border-gray-200 hover:border-indigo-300 transition-all flex flex-col items-center gap-2 group">
+                        <div class="w-4 h-4 rounded-full border-2 border-gray-300 group-hover:border-indigo-500"
+                            id="dot-siyi"></div>
+                        <span class="font-bold text-gray-700">SIYI A8 Mini</span>
+                        <span class="text-xs text-gray-400">RTSP Stream</span>
+                    </button>
+
+                    <button onclick="setMode('picam')" id="btn-picam"
+                        class="p-4 rounded-lg border-2 border-gray-200 hover:border-indigo-300 transition-all flex flex-col items-center gap-2 group">
+                        <div class="w-4 h-4 rounded-full border-2 border-gray-300 group-hover:border-indigo-500"
+                            id="dot-picam"></div>
+                        <span class="font-bold text-gray-700">Pi Camera</span>
+                        <span class="text-xs text-gray-400">Local CSI/USB</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 text-blue-800 p-4 rounded-lg text-sm">
+                <p><strong>Note:</strong> Changing the camera source will restart the video stream service. The page may
+                    briefly lose connection.</p>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let currentMode = '{{ mode }}';
+
+        function updateUI(mode) {
+            const sBtn = document.getElementById('btn-siyi');
+            const pBtn = document.getElementById('btn-picam');
+            const sDot = document.getElementById('dot-siyi');
+            const pDot = document.getElementById('dot-picam');
+
+            // Reset
+            [sBtn, pBtn].forEach(b => b.className = "p-4 rounded-lg border-2 border-gray-200 hover:border-indigo-300 transition-all flex flex-col items-center gap-2 cursor-pointer");
+            [sDot, pDot].forEach(d => d.className = "w-4 h-4 rounded-full border-2 border-gray-300");
+
+            // Active
+            const activeBtn = mode === 'siyi' ? sBtn : pBtn;
+            const activeDot = mode === 'siyi' ? sDot : pDot;
+
+            activeBtn.className = "p-4 rounded-lg border-2 border-indigo-600 bg-indigo-50 flex flex-col items-center gap-2 cursor-default";
+            activeDot.className = "w-4 h-4 rounded-full border-4 border-indigo-600 bg-white";
+        }
+
+        async function setMode(mode) {
+            if (mode === currentMode) return;
+
+            if (!confirm(`Switch to ${mode === 'siyi' ? 'SIYI A8' : 'Pi Camera'}? This will restart the stream.`)) return;
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_mode: mode })
+                });
+
+                if (res.ok) {
+                    currentMode = mode;
+                    updateUI(mode);
+                    alert('Configuration saved. Service restarting...');
+                    setTimeout(() => window.location.href = '/', 2000);
+                } else {
+                    alert('Failed to save configuration.');
+                }
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+
+        // Init
+        updateUI(currentMode);
+    </script>
+</body>
+
+</html>

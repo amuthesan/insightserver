@@ -1,7 +1,6 @@
 # --- ADD AT THE VERY TOP ---
 from gevent import monkey
 monkey.patch_all()
-# -------------------------
 
 import serial
 import time
@@ -9,37 +8,67 @@ import threading
 import json
 import socket
 import struct
+from flask import Flask, render_template, Response, request, jsonify
+from flask_socketio import SocketIO
+
 import subprocess
 import atexit
 import signal
-from flask import Flask, render_template, Response
-from flask_socketio import SocketIO
+import os
+
+# --- Hardware Imports (Mockable) ---
+try:
+    from gpiozero import AngularServo
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("⚠️ gpiozero not found. Servo control will be disabled.")
 
 # --- Configuration ---
+CONFIG_FILE = 'config.json'
+DEFAULT_CONFIG = {"camera_mode": "siyi"}
+
 # Rover Config
 SERIAL_PORT = '/dev/ttyS0' 
 BAUD_RATE = 115200
 
-# Gimbal Config
+# Gimbal Config (SIYI)
 GIMBAL_IP = '192.168.144.25'
 GIMBAL_PORT = 37260
 
-# Camera Config (RTSP)
+# Camera Config
 CAMERA_RTSP_URL = 'rtsp://192.168.144.25:8554/main.264'
 
-# --- GStreamer Command ---
-gstreamer_command = [
-    'gst-launch-1.0',
-    'rtspsrc', f'location={CAMERA_RTSP_URL}', 'latency=0', 'tcp-timeout=5000000',
-    '!', 'rtph264depay',
-    '!', 'h264parse',
-    '!', 'v4l2h264dec',                  
-    '!', 'videoscale',
-    '!', 'video/x-raw,width=640,height=360',
-    '!', 'v4l2jpegenc',                 
-    '!', 'multipartmux', 'boundary=--frame', 
-    '!', 'fdsink', 'fd=1'                
-]
+# Servo Config (Pi Cam Tilt)
+SERVO_PIN = 18
+
+# --- GStreamer Commands ---
+def get_gstreamer_command(mode):
+    if mode == 'siyi':
+        return [
+            'gst-launch-1.0',
+            'rtspsrc', f'location={CAMERA_RTSP_URL}', 'latency=0', 'tcp-timeout=5000000',
+            '!', 'rtph264depay',
+            '!', 'h264parse',
+            '!', 'v4l2h264dec',
+            '!', 'videoscale',
+            '!', 'video/x-raw,width=640,height=360',
+            '!', 'v4l2jpegenc',
+            '!', 'multipartmux', 'boundary=--frame',
+            '!', 'fdsink', 'fd=1'
+        ]
+    elif mode == 'picam':
+        # Using libcamerasrc for modern Pi OS
+        return [
+            'gst-launch-1.0',
+            'libcamerasrc',
+            '!', 'video/x-raw,width=640,height=360,framerate=30/1',
+            '!', 'videoconvert',
+            '!', 'jpegenc',
+            '!', 'multipartmux', 'boundary=--frame',
+            '!', 'fdsink', 'fd=1'
+        ]
+    return []
 
 # --- Global Objects ---
 app = Flask(__name__)
@@ -48,6 +77,41 @@ ser = None
 gimbal = None
 stream_process = None
 connected_clients_count = 0
+servo = None
+config = {}
+
+# --- Config Management ---
+def load_config():
+    global config
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+        except:
+            config = DEFAULT_CONFIG.copy()
+    else:
+        config = DEFAULT_CONFIG.copy()
+    print(f"Loaded Config: {config}")
+
+def save_config():
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f)
+
+# --- Servo Setup ---
+def init_servo():
+    global servo
+    if GPIO_AVAILABLE and config.get('camera_mode') == 'picam':
+        try:
+            # Standard servo range: -90 to 90 degrees
+            servo = AngularServo(SERVO_PIN, min_angle=-90, max_angle=90)
+            print(f"✅ Servo initialized on GPIO {SERVO_PIN}")
+        except Exception as e:
+            print(f"🛑 Error initializing servo: {e}")
+            servo = None
+    else:
+        if servo:
+            servo.close()
+            servo = None
 
 # --- SIYI TCP Protocol ---
 class SiyiTCPProtocol:
@@ -264,8 +328,19 @@ def init_serial():
 # --- GStreamer ---
 def start_streamer():
     global stream_process
+    
+    # Stop existing stream if any
+    if stream_process:
+        stream_process.terminate()
+        stream_process.wait()
+        stream_process = None
+
+    mode = config.get('camera_mode', 'siyi')
+    command = get_gstreamer_command(mode)
+    print(f"Starting GStreamer in [{mode}] mode...")
+    
     try:
-        stream_process = subprocess.Popen(gstreamer_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**8)
+        stream_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**8)
         print(f"GStreamer started PID: {stream_process.pid}")
         def log_errors():
             if stream_process and stream_process.stderr:
@@ -288,9 +363,31 @@ def generate_frames():
 @app.route('/')
 def index(): return render_template('dashboard.html')
 
+@app.route('/config')
+def config_page():
+    return render_template('config.html', mode=config.get('camera_mode', 'siyi'))
+
+@app.route('/api/config', methods=['POST'])
+def update_config():
+    data = request.json
+    if 'camera_mode' in data:
+        config['camera_mode'] = data['camera_mode']
+        save_config()
+        
+        # Re-init hardware based on new config
+        init_servo()
+        start_streamer()
+        
+        return jsonify({"status": "ok", "mode": config['camera_mode']})
+    return jsonify({"status": "error"}), 400
+
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=--frame')
+
+@app.route('/joystick_debug')
+def joystick_debug():
+    return render_template('joystick_debug.html')
 
 @socketio.on('connect')
 def handle_connect():
@@ -327,10 +424,23 @@ def handle_control(data):
 
 @socketio.on('joystick_command')
 def handle_joystick(data):
-    global gimbal
-    if gimbal:
+    global gimbal, servo
+    mode = config.get('camera_mode', 'siyi')
+    
+    yaw_val = data.get('yaw', 0.0)
+    pitch_val = data.get('pitch', 0.0)
+
+    if mode == 'siyi' and gimbal:
         try:
-            gimbal.send_gimbal_speed(int(data.get('yaw',0)*100), int(data.get('pitch',0)*100))
+            gimbal.send_gimbal_speed(int(yaw_val*100), int(pitch_val*100))
+        except: pass
+        
+    elif mode == 'picam' and servo:
+        # Map pitch (-1.0 to 1.0) to servo angle (-90 to 90)
+        # Invert pitch if needed based on mechanical setup
+        angle = pitch_val * 90 
+        try:
+            servo.angle = angle
         except: pass
 
 @socketio.on('set_arm_state')
@@ -339,7 +449,7 @@ def handle_arm_state(data):
     if not gimbal: return
     is_armed = data.get('state', False)
     
-    # Auto-Recording Logic
+    # Auto-Recording Logic (Only for SIYI for now)
     if is_armed and not gimbal.is_recording:
         print("ARMED: Starting Recording")
         gimbal.toggle_recording()
@@ -348,14 +458,18 @@ def handle_arm_state(data):
         gimbal.toggle_recording()
 
 def cleanup():
-    global ser, gimbal, stream_process
+    global ser, gimbal, stream_process, servo
     if stream_process: stream_process.terminate()
     if ser: ser.write(b'{"T": 131, "cmd": 0}\n')
     if gimbal: gimbal.send_gimbal_speed(0, 0)
+    if servo: servo.close()
 
 if __name__ == '__main__':
     atexit.register(cleanup)
     signal.signal(signal.SIGTERM, lambda s, f: cleanup())
+    
+    load_config()
+    init_servo()
     
     if init_serial():
         socketio.start_background_task(read_serial_thread)

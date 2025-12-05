@@ -2,3 +2,5 @@ flask
 flask-socketio
 gevent
 pyserial
+gpiozero
+rpi.gpio
