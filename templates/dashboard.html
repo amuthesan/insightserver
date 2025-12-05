@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-white">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insight Control System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    gridTemplateColumns: {
+                        '10': 'repeat(10, minmax(0, 1fr))', // Add 10-col grid
+                    }
+                },
+            },
+        }
+    </script>
+    <style>
+        /* Reset the default appearance */
+        progress {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 20px;
+            border: 1px solid #e2e8f0;
+            /* gray-300 */
+            border-radius: 5px;
+            overflow: hidden;
+            background: #f8fafc;
+            /* gray-50 */
+        }
+
+        /* WebKit (Chrome, Safari) */
+        progress::-webkit-progress-bar {
+            background: #f8fafc;
+            /* gray-50 */
+            border-radius: 5px;
+        }
+
+        progress::-webkit-progress-value {
+            background: #4299e1;
+            /* blue-500 */
+            border-radius: 0;
+            transition: width 0.05s linear;
+        }
+
+        /* Firefox */
+        progress::-moz-progress-bar {
+            background: #4299e1;
+            /* blue-500 */
+            border-radius: 5px;
+            transition: width 0.05s linear;
+        }
+
+        .pressed {
+            background-color: #38a169 !important;
+            /* green-600 */
+            color: white !important;
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(72, 187, 120, 0.5);
+        }
+
+        .btn-arm {
+            background-color: #f8fafc;
+            /* gray-50 */
+            border: 2px solid #e53e3e;
+            /* red-600 */
+            color: #c53030;
+            /* red-700 */
+            transition: all 0.3s ease;
+        }
+
+        .btn-arm.armed {
+            border-color: #38a169;
+            /* green-600 */
+            background-color: #38a169;
+            /* green-600 */
+            color: #ffffff;
+            /* white */
+            box-shadow: 0 0 15px rgba(72, 187, 120, 0.5);
+        }
+
+        /* --- Rover Artificial Horizon Styles --- */
+        .ah-container {
+            width: 8rem;
+            height: 8rem;
+            /* Made EVEN smaller */
+            border-radius: 50%;
+            border: 5px solid #cbd5e1;
+            /* gray-300 */
+            background: #f1f5f9;
+            /* gray-100 */
+            overflow: hidden;
+            position: relative;
+            margin: auto;
+        }
+
+        .ah-roll-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transition: transform 0.1s linear;
+            z-index: 1;
+        }
+
+        .ah-pitch-container {
+            width: 100%;
+            height: 200%;
+            position: absolute;
+            top: -50%;
+            transition: transform 0.1s linear;
+        }
+
+        .ah-sky {
+            height: 50%;
+            background: #4299e1;
+        }
+
+        /* Blue */
+        .ah-ground {
+            height: 50%;
+            background: #8b4513;
+        }
+
+        /* Brown */
+        .ah-static-plane {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 2px;
+            background: #dc2626;
+            /* red-600 */
+            z-index: 2;
+        }
+
+        .ah-static-plane::before {
+            content: '';
+            position: absolute;
+            left: -10px;
+            top: -4px;
+            width: 2px;
+            height: 10px;
+            background: #dc2626;
+            /* red-600 */
+        }
+
+        .ah-static-plane::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: -4px;
+            width: 2px;
+            height: 10px;
+            background: #dc2626;
+            /* red-600 */
+        }
+    </style>
+</head>
+
+<body class="h-full font-sans text-gray-900">
+
+    <div class="w-full max-w-7xl mx-auto p-4 md:p-8">
+
+        <div class="flex justify-between items-center mb-4 border-b border-gray-200 pb-4">
+            <img src="/static/logo.png" alt="Company Logo" class="h-16 w-16">
+            <h1 class="text-3xl font-bold text-gray-900">Insight Control System</h1>
+            <button id="arm-button" type="button"
+                class="btn-arm w-auto text-xl font-bold py-3 px-6 rounded-lg shadow-lg focus:outline-none focus:ring-4 focus:ring-red-600">
+                DISARMED
+            </button>
+        </div>
+
+        <p class="text-lg text-gray-600 text-center mb-6">Left Stick: Drive | Right Stick: Gimbal | A: Arm/Disarm</p>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-6">
+
+            <div
+                class="bg-white border border-gray-200 p-6 rounded-lg shadow-lg flex flex-col items-center md:col-span-7">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">FPV Camera Feed</h3>
+                <img src="/video_feed" alt="Video Feed" class="w-full rounded-lg bg-gray-200" style="min-height: 480px;"
+                    onerror="this.alt='Video feed failed to load. Is GStreamer running?'; this.style.display='none';">
+            </div>
+
+            <div class="bg-white border border-gray-200 p-6 rounded-lg shadow-lg md:col-span-3 flex flex-col">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Rover Telemetry</h3>
+
+                <div class="space-y-2 flex-grow flex flex-col">
+                    <div class="grid grid-cols-2 gap-2 mb-2 text-center">
+                        <div class="bg-gray-100 p-2 rounded-lg shadow-inner">
+                            <div class="flex items-center justify-center">
+                                <span id="server-status-dot" class="h-3 w-3 bg-red-500 rounded-full mr-2"></span>
+                                <span id="server-status-text" class="font-medium text-gray-800">Connecting...</span>
+                            </div>
+                            <div class="text-sm text-gray-600">Server</div>
+                        </div>
+                        <div class="bg-gray-100 p-2 rounded-lg shadow-inner">
+                            <div class="flex items-center justify-center">
+                                <span id="serial-status-dot" class="h-3 w-3 bg-gray-400 rounded-full mr-2"></span>
+                                <span id="serial-status-text" class="font-medium text-gray-800">Waiting...</span>
+                            </div>
+                            <div class="text-sm text-gray-600">Rover (Serial)</div>
+                        </div>
+                        <div class="bg-gray-100 p-2 rounded-lg shadow-inner">
+                            <div class="flex items-center justify-center">
+                                <span id="gamepad-status-dot" class="h-3 w-3 bg-red-500 rounded-full mr-2"></span>
+                                <span id="gamepad-status-text" class="font-medium text-gray-800">Not Found</span>
+                            </div>
+                            <div class="text-sm text-gray-600">Gamepad</div>
+                        </div>
+                        <div class="bg-gray-100 p-2 rounded-lg shadow-inner flex flex-col justify-center items-center">
+                            <button type="button"
+                                class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-gray-300 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2"
+                                role="switch" aria-checked="false" id="invert-toggle">
+                                <span class="sr-only">Invert Y-Axis</span>
+                                <span id="invert-toggle-handle"
+                                    class="pointer-events-none inline-block h-5 w-5 translate-x-0 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+                            </button>
+                            <div class="text-sm text-gray-600 mt-1">Invert Y-Axis (Off)</div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center p-2 bg-gray-100 rounded-lg shadow-inner"> <svg id="battery-icon-svg"
+                            class="w-6 h-6 text-gray-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M21 10.5h.375c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125H21M4.5 10.5v2.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V10.5m-13.5 0v-2.25A2.25 2.25 0 0 1 6.75 6h10.5a2.25 2.25 0 0 1 2.25 2.25v2.25" />
+                        </svg>
+                        <div>
+                            <div class="text-sm text-gray-600">Battery</div>
+                            <div class="flex items-baseline space-x-2">
+                                <span id="battery-percent" class="text-xl font-bold text-gray-800">--%</span> <span
+                                    id="battery-voltage" class="text-xs font-medium text-gray-600">--V</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="p-2 bg-gray-100 rounded-lg shadow-inner">
+                            <div class="text-sm text-gray-600">Left Motor</div>
+                            <span id="left-motor" class="text-lg font-bold text-gray-800">0.00</span>
+                        </div>
+                        <div class="p-2 bg-gray-100 rounded-lg shadow-inner">
+                            <div class="text-sm text-gray-600">Right Motor</div>
+                            <span id="right-motor" class="text-lg font-bold text-gray-800">0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-100 p-2 rounded-lg shadow-inner flex flex-col mt-auto">
+                        <div class="ah-container">
+                            <div id="ah-roll" class="ah-roll-container">
+                                <div id="ah-pitch" class="ah-pitch-container">
+                                    <div class="ah-sky"></div>
+                                    <div class="ah-ground"></div>
+                                </div>
+                            </div>
+                            <div class="ah-static-plane"></div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 mt-2 w-full">
+                            <div class="p-2 bg-white rounded-lg text-center shadow-sm">
+                                <div class="text-sm text-gray-600">Gimbal Yaw</div>
+                                <span id="gimbal-yaw" class="text-lg font-bold text-gray-800">0.00</span>°
+                            </div>
+                            <div class="p-2 bg-white rounded-lg text-center shadow-sm">
+                                <div class="text-sm text-gray-600">Gimbal Pitch</div>
+                                <span id="gimbal-pitch" class="text-lg font-bold text-gray-800">0.00</span>°
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const serverDot = document.getElementById('server-status-dot');
+        const serverText = document.getElementById('server-status-text');
+        const serialDot = document.getElementById('serial-status-dot');
+        const serialText = document.getElementById('serial-status-text');
+        const gamepadDot = document.getElementById('gamepad-status-dot');
+        const gamepadText = document.getElementById('gamepad-status-text');
+
+        const leftMotorReadout = document.getElementById('left-motor');
+        const rightMotorReadout = document.getElementById('right-motor');
+
+        // Rover AH
+        const ahRoll = document.getElementById('ah-roll');
+        const ahPitch = document.getElementById('ah-pitch');
+
+        // Rover Battery
+        const batteryReadoutPercent = document.getElementById('battery-percent');
+        const batteryReadoutVoltage = document.getElementById('battery-voltage');
+        const batteryIcon = document.getElementById('battery-icon-svg');
+
+        const armButton = document.getElementById('arm-button');
+
+        // GIMBAL READOUTS
+        const gimbalYawReadout = document.getElementById('gimbal-yaw');
+        const gimbalPitchReadout = document.getElementById('gimbal-pitch');
+
+        // --- Constants ---
+        const ROVER_MAX_SPEED = 0.5; // -0.5 to +0.5
+        const JOYSTICK_DEADZONE = 0.1;
+
+        // --- JOYSTICK CONFIG ---
+        const ROVER_X_AXIS_ID = 0;   // Left Stick X
+        const ROVER_Y_AXIS_ID = 1;   // Left Stick Y
+        const GIMBAL_YAW_AXIS_ID = 2;   // Right Stick X
+        const GIMBAL_PITCH_AXIS_ID = 3; // Right Stick Y
+        // ------------------------------------
+
+        // --- State ---
+        let socket = null;
+        let gamepad = null;
+        let animationFrameId = null;
+        let isInverted = false;
+        let isArmed = false;
+        let b0PressedLastFrame = false;
+
+        // --- Utility Functions ---
+        function applyDeadzone(value) {
+            return Math.abs(value) < JOYSTICK_DEADZONE ? 0 : value;
+        }
+        function clamp(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+        function updateBatteryVisuals(percent) {
+            batteryIcon.classList.remove('text-green-500', 'text-yellow-500', 'text-red-500', 'text-gray-500');
+            batteryReadoutPercent.classList.remove('text-green-700', 'text-yellow-700', 'text-red-770', 'text-gray-800');
+
+            if (percent > 60) {
+                batteryIcon.classList.add('text-green-500');
+                batteryReadoutPercent.classList.add('text-green-700');
+            } else if (percent > 20) {
+                batteryIcon.classList.add('text-yellow-500');
+                batteryReadoutPercent.classList.add('text-yellow-700');
+            } else if (percent > 0) {
+                batteryIcon.classList.add('text-red-500');
+                batteryReadoutPercent.classList.add('text-red-700');
+            } else {
+                batteryIcon.classList.add('text-gray-500');
+                batteryReadoutPercent.classList.add('text-gray-800');
+            }
+        }
+        function toggleArmState() {
+            isArmed = !isArmed;
+
+            // --- ADDED: Send Arm State to Server ---
+            if (socket && socket.connected) {
+                socket.emit('set_arm_state', { state: isArmed });
+            }
+            // ---------------------------------------
+
+            if (isArmed) {
+                armButton.textContent = 'ARMED';
+                armButton.classList.add('armed');
+                armButton.classList.remove('focus:ring-red-600');
+                armButton.classList.add('focus:ring-green-600');
+            } else {
+                armButton.textContent = 'DISARMED';
+                armButton.classList.remove('armed');
+                armButton.classList.remove('focus:ring-green-600');
+                armButton.classList.add('focus:ring-red-600');
+                sendRoverControl(0, 0);
+            }
+        }
+
+        // --- WebSocket Logic ---
+        function initSocketIO() {
+            socket = io();
+
+            socket.on('connect', () => {
+                serverDot.classList.remove('bg-red-500');
+                serverDot.classList.add('bg-green-500');
+                serverText.textContent = 'Connected';
+            });
+
+            socket.on('disconnect', () => {
+                serverDot.classList.add('bg-red-500');
+                serverDot.classList.remove('bg-green-500');
+                serverText.textContent = 'Disconnected';
+            });
+
+            socket.on('serial_status', (data) => {
+                if (data.status === 'connected') {
+                    serialDot.classList.remove('bg-red-500', 'bg-gray-400');
+                    serialDot.classList.add('bg-green-500');
+                    serialText.textContent = 'Connected';
+                } else {
+                    serialDot.classList.add('bg-red-500');
+                    serialDot.classList.remove('bg-green-500', 'bg-gray-400');
+                    serialText.textContent = 'Disconnected';
+                }
+            });
+
+            // ROVER TELEMETRY
+            socket.on('imu_data', (data) => {
+                const roll = data.roll || 0;
+                const pitch = data.pitch || 0;
+                const voltage = data.voltage || 0;
+                const battery_percent = data.battery_percent || 0;
+
+                // --- AH LOGIC ---
+                const clampedPitch = clamp(pitch, -45, 45);
+                const yTranslation = (clampedPitch / 45) * 50;
+
+                // Update Visual AH
+                if (ahRoll && ahPitch) {
+                    ahRoll.style.transform = `rotate(${-roll}deg)`;
+                    ahPitch.style.transform = `translateY(${yTranslation}%)`;
+                }
+
+                // Update Text Readouts
+                batteryReadoutPercent.textContent = `${battery_percent.toFixed(0)}%`;
+                batteryReadoutVoltage.textContent = `${voltage.toFixed(2)}V`;
+                updateBatteryVisuals(battery_percent);
+            });
+
+            // GIMBAL TELEMETRY
+            socket.on('gimbal_attitude', (data) => {
+                if (gimbalYawReadout && gimbalPitchReadout) {
+                    gimbalYawReadout.textContent = data.yaw.toFixed(2);
+                    gimbalPitchReadout.textContent = data.pitch.toFixed(2);
+                }
+            });
+        }
+
+        // --- Gamepad Logic ---
+        function handleGamepadConnected(e) {
+            gamepad = e.gamepad;
+            gamepadDot.classList.remove('bg-red-500');
+            gamepadDot.classList.add('bg-green-500');
+            gamepadText.textContent = 'Connected';
+            if (!animationFrameId) gameLoop();
+        }
+
+        function handleGamepadDisconnected(e) {
+            gamepad = null;
+            gamepadDot.classList.add('bg-red-500');
+            gamepadDot.classList.remove('bg-green-500');
+            gamepadText.textContent = 'Not Found';
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            sendRoverControl(0, 0);
+            sendGimbalControl(0, 0);
+        }
+
+        function setupGamepadEvents() {
+            window.addEventListener('gamepadconnected', handleGamepadConnected);
+            window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
+            const gamepads = navigator.getGamepads();
+            for (const gp of gamepads) {
+                if (gp) {
+                    handleGamepadConnected({ gamepad: gp });
+                    break;
+                }
+            }
+        }
+
+        // --- MERGED CONTROL FUNCTIONS ---
+        function sendRoverControl(left, right) {
+            if (socket && socket.connected) {
+                socket.emit('control', { L: left, R: right });
+            }
+            leftMotorReadout.textContent = left.toFixed(2);
+            rightMotorReadout.textContent = right.toFixed(2);
+        }
+
+        function sendGimbalControl(yaw, pitch) {
+            if (socket && socket.connected) {
+                socket.emit('joystick_command', { 'yaw': yaw, 'pitch': pitch });
+            }
+        }
+
+        // --- Main Control Loop ---
+        function gameLoop() {
+            if (!gamepad) return;
+            const gp = navigator.getGamepads()[gamepad.index];
+            if (!gp) return;
+
+            // B0 (Arm/Disarm) LOGIC
+            const b0Pressed = gp.buttons[0] && gp.buttons[0].pressed;
+            if (b0Pressed && !b0PressedLastFrame) {
+                toggleArmState();
+            }
+            b0PressedLastFrame = b0Pressed;
+
+            // ROVER (Left Stick)
+            let xAxis = applyDeadzone(gp.axes[ROVER_X_AXIS_ID] || 0);
+            let rawYAxis = applyDeadzone(gp.axes[ROVER_Y_AXIS_ID] || 0);
+            let yAxis = isInverted ? -rawYAxis : rawYAxis;
+
+            let baseSpeed = yAxis * ROVER_MAX_SPEED;
+            let turnSpeed = xAxis * ROVER_MAX_SPEED;
+            let leftSpeed = clamp(baseSpeed + turnSpeed, -ROVER_MAX_SPEED, ROVER_MAX_SPEED);
+            let rightSpeed = clamp(baseSpeed - turnSpeed, -ROVER_MAX_SPEED, ROVER_MAX_SPEED);
+
+            // GIMBAL (Right Stick)
+            let gimbalYaw = applyDeadzone(gp.axes[GIMBAL_YAW_AXIS_ID] || 0);
+            let gimbalPitch = applyDeadzone(gp.axes[GIMBAL_PITCH_AXIS_ID] || 0);
+            let gimbalPitchCommand = -gimbalPitch;
+
+            // SEND COMMANDS
+            sendGimbalControl(gimbalYaw, gimbalPitchCommand);
+            if (isArmed) {
+                sendRoverControl(leftSpeed, rightSpeed);
+            } else {
+                sendRoverControl(0, 0);
+            }
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initSocketIO();
+            setupGamepadEvents();
+
+            // Toggle Switch Logic
+            const invertToggle = document.getElementById('invert-toggle');
+            const invertToggleHandle = document.getElementById('invert-toggle-handle');
+            const invertToggleText = invertToggle.nextElementSibling;
+            invertToggle.addEventListener('click', () => {
+                isInverted = !isInverted;
+                if (isInverted) {
+                    invertToggle.classList.add('bg-indigo-600');
+                    invertToggle.classList.remove('bg-gray-300');
+                    invertToggleHandle.classList.add('translate-x-5');
+                    invertToggleHandle.classList.remove('translate-x-0');
+                    if (invertToggleText) invertToggleText.textContent = 'Invert Y-Axis (On)';
+                } else {
+                    invertToggle.classList.remove('bg-indigo-600');
+                    invertToggle.classList.add('bg-gray-300');
+                    invertToggleHandle.classList.remove('translate-x-5');
+                    invertToggleHandle.classList.add('translate-x-0');
+                    if (invertToggleText) invertToggleText.textContent = 'Invert Y-Axis (Off)';
+                }
+            });
+
+            // Arm/Disarm Button Logic
+            if (armButton) {
+                armButton.addEventListener('click', toggleArmState);
+            }
+        });
+    </script>
+</body>
+
+</html>
