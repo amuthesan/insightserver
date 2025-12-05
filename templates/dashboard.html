@@ -228,16 +228,28 @@
                     </div>
                 </div>
 
-                <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase mb-3 tracking-wide">Motor Telemetry</h3>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="text-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                            <div class="text-[9px] text-gray-500 mb-1 font-bold">LEFT</div>
-                            <div id="mtr-l" class="text-xl font-mono font-bold text-gray-700">0.00</div>
+                <!-- CPU Temp (Moved Here) -->
+                <div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                    <div class="flex justify-between items-center">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">CPU Temp</span>
+                        <span id="cpu-temp" class="text-xs font-mono text-gray-500">0.0°C</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                        <div id="temp-bar" class="bg-blue-600 h-1.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Motor Telemetry (Compacted) -->
+                <div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wide">Motor Telemetry</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="text-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                            <div class="text-[8px] text-gray-500 mb-0.5 font-bold">LEFT</div>
+                            <div id="mtr-l" class="text-lg font-mono font-bold text-gray-700">0.00</div>
                         </div>
-                        <div class="text-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                            <div class="text-[9px] text-gray-500 mb-1 font-bold">RIGHT</div>
-                            <div id="mtr-r" class="text-xl font-mono font-bold text-gray-700">0.00</div>
+                        <div class="text-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                            <div class="text-[8px] text-gray-500 mb-0.5 font-bold">RIGHT</div>
+                            <div id="mtr-r" class="text-lg font-mono font-bold text-gray-700">0.00</div>
                         </div>
                     </div>
                 </div>
@@ -403,28 +415,7 @@
                 }
             });
 
-            state.socket.on('system_data', (d) => {
-                const t = d.cpu_temp || 0;
-                const tElem = document.getElementById('cpu-temp');
-                const tBar = document.getElementById('temp-bar');
 
-                if (tElem && tBar) {
-                    tElem.textContent = t.toFixed(1) + '°C';
-                    // Scale 0-100C
-                    tBar.style.width = clamp(t, 0, 100) + '%';
-
-                    if (t > 80) {
-                        tBar.className = 'bg-red-600 h-2.5 rounded-full animate-pulse';
-                        tElem.className = 'text-xs font-mono text-red-600 font-bold';
-                    } else if (t > 60) {
-                        tBar.className = 'bg-yellow-500 h-2.5 rounded-full';
-                        tElem.className = 'text-xs font-mono text-yellow-600';
-                    } else {
-                        tBar.className = 'bg-blue-600 h-2.5 rounded-full';
-                        tElem.className = 'text-xs font-mono text-gray-500';
-                    }
-                }
-            });
         }
 
         // GAME LOOP
