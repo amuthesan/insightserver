@@ -34,7 +34,7 @@ sudo apt install -y python3-pip python3-venv git \
     gstreamer1.0-tools gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
     gstreamer1.0-libav gstreamer1.0-plugins-rtp \
-    v4l-utils
+    v4l-utils libcamera-tools gstreamer1.0-libcamera
 
 # 3. Configure UART (Raspberry Pi specific)
 echo "[3/6] Configuring UART..."

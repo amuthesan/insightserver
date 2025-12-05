@@ -17,7 +17,10 @@ echo "[1/3] Pulling latest changes from git..."
 git pull
 
 # 2. Update Dependencies
-echo "[2/3] Updating Python dependencies..."
+echo "[2/3] Updating system dependencies..."
+sudo apt install -y libcamera-tools gstreamer1.0-libcamera
+
+echo "[2.5/3] Updating Python dependencies..."
 if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
     pip install -r requirements.txt

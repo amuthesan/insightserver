@@ -58,11 +58,11 @@ def get_gstreamer_command(mode):
             '!', 'fdsink', 'fd=1'
         ]
     elif mode == 'picam':
-        # Using libcamerasrc for modern Pi OS
+        # Using libcamerasrc for modern Pi OS (Pi Cam 3)
         return [
             'gst-launch-1.0',
             'libcamerasrc',
-            '!', 'video/x-raw,width=640,height=360,framerate=30/1',
+            '!', 'video/x-raw,width=640,height=360,framerate=30/1,format=NV12',
             '!', 'videoconvert',
             '!', 'jpegenc',
             '!', 'multipartmux', 'boundary=--frame',
