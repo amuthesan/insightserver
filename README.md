@@ -34,4 +34,4 @@ A comprehensive control system for FPV rovers, featuring real-time video streami
 
 ## Version
 
-Current Version: **v0.1 Beta**
+Current Version: **v0.2 Beta**
