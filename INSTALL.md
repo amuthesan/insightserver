@@ -22,6 +22,17 @@ The easiest way to install is using the provided script. This handles dependenci
     sudo reboot
     ```
 
+## Updating
+
+To update the system to the latest version:
+
+1.  **Run the Update Script**:
+    ```bash
+    cd fpv_control
+    ./update.sh
+    ```
+    This will pull the latest code, update dependencies, and restart the service.
+
 ---
 
 ## Manual Installation
