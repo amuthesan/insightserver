@@ -30,8 +30,7 @@ sudo apt update && sudo apt upgrade -y
 
 # 2. Install Dependencies
 echo "[2/6] Installing system dependencies..."
-sudo apt install -y python3-pip python3-venv git \
-    gstreamer1.0-tools gstreamer1.0-plugins-good \
+sudo apt install -y python3-pip python3-venv libcamera-tools gstreamer1.0-libcamera python3-lgpiotools gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
     gstreamer1.0-libav gstreamer1.0-plugins-rtp \
     v4l-utils libcamera-tools gstreamer1.0-libcamera

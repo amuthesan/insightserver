@@ -18,7 +18,7 @@ git pull
 
 # 2. Update Dependencies
 echo "[2/3] Updating system dependencies..."
-sudo apt install -y libcamera-tools gstreamer1.0-libcamera
+sudo apt install -y libcamera-tools gstreamer1.0-libcamera python3-lgpio
 
 echo "[2.5/3] Updating Python dependencies..."
 if [ -d "$VENV_DIR" ]; then
