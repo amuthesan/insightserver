@@ -88,6 +88,7 @@ User=$USER_NAME
 WorkingDirectory=$PROJECT_DIR
 ExecStart=$VENV_DIR/bin/python $PROJECT_DIR/server.py
 Restart=always
+RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

@@ -595,6 +595,25 @@ def system_monitor_thread():
         socketio.emit('system_data', {'cpu_temp': temp})
         socketio.sleep(2)
 
+def read_serial_thread():
+    global ser
+    while True:
+        try:
+            if ser and ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8').strip()
+                if line:
+                    # logging.info(f"Serial: {line}") # Verbose debug
+                    try:
+                        data = json.loads(line)
+                        socketio.emit('imu_data', data)
+                    except json.JSONDecodeError:
+                        logging.warning(f"Invalid JSON from serial: {line}")
+            else:
+                socketio.sleep(0.01)
+        except Exception as e:
+            logging.error(f"Serial thread error: {e}")
+            socketio.sleep(1) # Prevent tight loop on error
+
 if __name__ == '__main__':
     atexit.register(cleanup)
     signal.signal(signal.SIGTERM, lambda s, f: cleanup())
@@ -614,6 +633,10 @@ if __name__ == '__main__':
             socketio.start_background_task(gimbal.receive_loop)
             socketio.start_background_task(heartbeat_loop, gimbal)
     except: gimbal = None
+
+    # Startup Delay to ensure camera/system is ready
+    print("⏳ Waiting for system to stabilize...")
+    time.sleep(2)
 
     start_streamer()
     print("🚀 Server started at http://0.0.0.0:5000")
