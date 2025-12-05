@@ -597,17 +597,22 @@ def system_monitor_thread():
 
 def read_serial_thread():
     global ser
+    last_emit = 0
     while True:
         try:
             if ser and ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8').strip()
-                if line:
-                    # logging.info(f"Serial: {line}") # Verbose debug
-                    try:
-                        data = json.loads(line)
-                        socketio.emit('imu_data', data)
-                    except json.JSONDecodeError:
-                        logging.warning(f"Invalid JSON from serial: {line}")
+                # Basic validation: ensure it looks like a JSON object
+                if line and line.startswith('{') and line.endswith('}'):
+                    # Rate Limit: Max 10Hz (0.1s)
+                    now = time.time()
+                    if now - last_emit > 0.1:
+                        try:
+                            data = json.loads(line)
+                            socketio.emit('imu_data', data)
+                            last_emit = now
+                        except json.JSONDecodeError:
+                            logging.warning(f"Invalid JSON from serial: {line}")
             else:
                 socketio.sleep(0.01)
         except Exception as e:
@@ -636,7 +641,7 @@ if __name__ == '__main__':
 
     # Startup Delay to ensure camera/system is ready
     print("⏳ Waiting for system to stabilize...")
-    time.sleep(2)
+    time.sleep(5) # Increased to 5s for Pi Camera
 
     start_streamer()
     print("🚀 Server started at http://0.0.0.0:5000")
