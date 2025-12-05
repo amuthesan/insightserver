@@ -12,7 +12,6 @@ import logging
 from flask import Flask, render_template, Response, request, jsonify
 from flask_socketio import SocketIO
 from gpiozero import AngularServo
-from gpiozero.pins.pigpio import PiGPIOFactory
 
 # --- Hardware Imports (Mockable) ---
 try:
