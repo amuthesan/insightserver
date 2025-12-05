@@ -2,6 +2,32 @@
 
 This guide details the steps to install and configure the Insight Server Control System on a fresh Raspberry Pi OS installation.
 
+## Quick Install (Automated)
+
+The easiest way to install is using the provided script. This handles dependencies, configuration, and service setup automatically.
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/amuthesan/insightserver.git fpv_control
+    cd fpv_control
+    ```
+
+2.  **Run the Installer**:
+    ```bash
+    ./install.sh
+    ```
+
+3.  **Reboot**:
+    ```bash
+    sudo reboot
+    ```
+
+---
+
+## Manual Installation
+
+If you prefer to install manually, follow the steps below.
+
 ## 1. OS Setup
 
 1.  **Flash Raspberry Pi OS**:
