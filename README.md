@@ -1,6 +1,6 @@
-# FPV Control System
+# Insight Server Control System
 
-A comprehensive control system for FPV rovers, featuring real-time video streaming, gimbal control, and telemetry.
+A comprehensive control system for Insight rover, featuring real-time video streaming, gimbal control, and telemetry.
 
 ## Features
 

@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide details the steps to install and configure the FPV Control system on a fresh Raspberry Pi OS installation.
+This guide details the steps to install and configure the Insight Server Control System on a fresh Raspberry Pi OS installation.
 
 ## 1. OS Setup
 
