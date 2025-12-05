@@ -9,13 +9,11 @@ import threading
 import json
 import socket
 import struct
-from flask import Flask, render_template, Response
-from flask_socketio import SocketIO
-
 import subprocess
 import atexit
 import signal
-import io
+from flask import Flask, render_template, Response
+from flask_socketio import SocketIO
 
 # --- Configuration ---
 # Rover Config
@@ -26,7 +24,7 @@ BAUD_RATE = 115200
 GIMBAL_IP = '192.168.144.25'
 GIMBAL_PORT = 37260
 
-# Camera Config
+# Camera Config (RTSP)
 CAMERA_RTSP_URL = 'rtsp://192.168.144.25:8554/main.264'
 
 # --- GStreamer Command ---
@@ -35,28 +33,24 @@ gstreamer_command = [
     'rtspsrc', f'location={CAMERA_RTSP_URL}', 'latency=0', 'tcp-timeout=5000000',
     '!', 'rtph264depay',
     '!', 'h264parse',
-    '!', 'v4l2h264dec',                  # <-- Hardware H.264 Decode
+    '!', 'v4l2h264dec',                  
     '!', 'videoscale',
     '!', 'video/x-raw,width=640,height=360',
-    '!', 'v4l2jpegenc',                 # <-- Use default quality
-    '!', 'multipartmux', 'boundary=--frame', # Build the multipart stream in GStreamer
-    '!', 'fdsink', 'fd=1'                # Pipe to stdout
+    '!', 'v4l2jpegenc',                 
+    '!', 'multipartmux', 'boundary=--frame', 
+    '!', 'fdsink', 'fd=1'                
 ]
 
 # --- Global Objects ---
 app = Flask(__name__)
-socketio = SocketIO(app, async_mode='gevent') # Specify gevent mode
+socketio = SocketIO(app, async_mode='gevent') 
 ser = None
 gimbal = None
 stream_process = None
 connected_clients_count = 0
 
-# --- SIYI TCP Protocol Implementation ---
+# --- SIYI TCP Protocol ---
 class SiyiTCPProtocol:
-    """
-    Implements the SIYI TCP protocol.
-    """
-    # CRC16 lookup table from the document
     CRC16_TAB = [
         0x0, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
         0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef,
@@ -98,14 +92,14 @@ class SiyiTCPProtocol:
         self.sock = None
         self.seq = 0
         self.lock = threading.Lock() 
-        self.is_recording = False # State tracker
+        self.is_recording = False # Internal state tracker
 
     def connect(self):
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.ip, self.port))
             self.sock.settimeout(2.0)
-            print(f"✅ Successfully connected to gimbal at {self.ip}:{self.port}")
+            print(f"✅ Connected to gimbal at {self.ip}:{self.port}")
             return True
         except Exception as e:
             print(f"🛑 Error connecting to gimbal: {e}")
@@ -151,22 +145,16 @@ class SiyiTCPProtocol:
         self.send(packet)
     
     def toggle_recording(self):
-        """
-        Sends Command 0x0C with payload 0x02 to toggle video recording.
-        """
+        """Sends Command 0x0C with payload 0x02 to toggle video recording."""
         try:
-            # CMD 0x0C = Camera/Gimbal Function
-            # Payload 0x02 = Toggle Video Record
             cmd_id = 0x0C
-            data = struct.pack('B', 0x02) 
+            data = struct.pack('B', 0x02) # Payload 0x02 = Toggle Record
             packet = self._build_packet(cmd_id, data)
             self.send(packet)
             
-            # Flip our internal state tracker
             self.is_recording = not self.is_recording
             status = "STARTED" if self.is_recording else "STOPPED"
             print(f"🎥 Camera recording {status}")
-            
         except Exception as e:
             print(f"Error toggling recording: {e}")
 
@@ -204,7 +192,6 @@ class SiyiTCPProtocol:
             except Exception as e:
                 print(f"Error in gimbal receive loop: {e}")
                 break
-        print("Exiting gimbal receive loop.")
 
     def parse_packet(self, packet):
         cmd_id = packet[7]
@@ -212,39 +199,21 @@ class SiyiTCPProtocol:
         data = packet[8:8 + data_len]
         if cmd_id == 0x0D and data_len >= 6:
             yaw_raw, pitch_raw, roll_raw = struct.unpack('<hhh', data[0:6])
-            yaw = yaw_raw / 10.0
-            pitch = pitch_raw / 10.0
-            roll = roll_raw / 10.0
             socketio.emit('gimbal_attitude', {
-                'pitch': pitch,
-                'roll': roll,
-                'yaw': yaw
+                'pitch': pitch_raw / 10.0,
+                'roll': roll_raw / 10.0,
+                'yaw': yaw_raw / 10.0
             })
 
-# --- Gimbal Heartbeat Thread ---
+# --- Background Threads ---
 def heartbeat_loop(gimbal_obj):
     while True:
         try:
             gimbal_obj.send_heartbeat()
-            socketio.sleep(2) # Use socketio.sleep for gevent-friendly sleep
+            socketio.sleep(2) 
         except Exception as e:
-            print(f"Heartbeat thread error: {e}")
             break
 
-# --- Serial Port (Rover) Setup ---
-def init_serial():
-    global ser
-    try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        ser.flushInput()
-        ser.flushOutput()
-        print(f"✅ Successfully opened rover serial port {SERIAL_PORT}.")
-        return True
-    except serial.SerialException as e:
-        print(f"🛑 Error: Could not open serial port {SERIAL_PORT}. {e}")
-        return False
-
-# --- Background Serial (Rover) Reader ---
 def read_serial_thread():
     global ser
     buffer = ""
@@ -255,8 +224,7 @@ def read_serial_thread():
                 if byte_in:
                     try:
                         char_in = byte_in.decode('utf-8')
-                        if char_in == '{':
-                            buffer = '{'
+                        if char_in == '{': buffer = '{'
                         elif buffer:
                             buffer += char_in
                             if char_in == '}':
@@ -267,224 +235,130 @@ def read_serial_thread():
                                         pitch = data.get("p", 0.0)
                                         voltage = data.get("v", 0.0)
                                         percent = max(0, min(100, ((voltage - 10.5) / 2.1) * 100))
-                                        data_to_emit = {
+                                        socketio.emit('imu_data', {
                                             'roll': roll,
                                             'pitch': pitch,
                                             'voltage': voltage,
                                             'battery_percent': percent
-                                        }
-                                        socketio.emit('imu_data', data_to_emit)
+                                        })
                                     buffer = ""
-                                except json.JSONDecodeError:
-                                    buffer = "" 
-                    except UnicodeDecodeError:
-                        buffer = ""
-            except serial.SerialException as e:
-                print(f"Serial read error: {e}")
+                                except json.JSONDecodeError: buffer = "" 
+                    except UnicodeDecodeError: buffer = ""
+            except Exception:
                 ser.close()
                 ser = None
-            except Exception as e:
-                print(f"Error in read_serial_thread: {e}")
         else:
-            socketio.sleep(2) # Use socketio.sleep
+            socketio.sleep(2) 
             init_serial()
 
-# --- GStreamer Functions ---
-def start_streamer():
-    """Starts the GStreamer subprocess."""
-    global stream_process
-    print("Starting GStreamer process...")
+def init_serial():
+    global ser
     try:
-        stream_process = subprocess.Popen(
-            gstreamer_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=10**8
-        )
-        print(f"GStreamer process started with PID: {stream_process.pid}")
-        
-        # Start a background task to log GStreamer errors
+        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        print(f"✅ Opened rover serial port {SERIAL_PORT}.")
+        return True
+    except Exception as e:
+        print(f"🛑 Error opening serial port: {e}")
+        return False
+
+# --- GStreamer ---
+def start_streamer():
+    global stream_process
+    try:
+        stream_process = subprocess.Popen(gstreamer_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**8)
+        print(f"GStreamer started PID: {stream_process.pid}")
         def log_errors():
             if stream_process and stream_process.stderr:
-                for line in stream_process.stderr:
-                    print(f"[gstreamer_error] {line.decode().strip()}")
-        
+                for line in stream_process.stderr: print(f"[gst] {line.decode().strip()}")
         socketio.start_background_task(log_errors)
-
-    except FileNotFoundError:
-        print("🛑 Error: 'gst-launch-1.0' command not found. Please install GStreamer.")
-        print("On Debian/Ubuntu, run: sudo apt-get install gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-rtp")
     except Exception as e:
-        print(f"🛑 Failed to start GStreamer: {e}")
+        print(f"🛑 GStreamer failed: {e}")
 
 def generate_frames():
-    """
-    Reads GStreamer's stdout and yields it.
-    """
     global stream_process
-    if stream_process is None or stream_process.stdout is None:
-        print("GStreamer process not started. No video stream available.")
-        return
-
-    print("Client connected to video stream. Starting GStreamer frame generation...")
-    
+    if not stream_process: return
     try:
         while True:
             chunk = stream_process.stdout.read(4096)
-            if not chunk:
-                print("End of GStreamer stream.")
-                break
+            if not chunk: break
             yield chunk
-            
-    except Exception as e:
-        print(f"Error while generating GStreamer frames: {e}")
-    finally:
-        print("Client disconnected from video stream.")
-# -----------------------------
+    except Exception: pass
 
-# --- Web Routes ---
+# --- Routes & Events ---
 @app.route('/')
-def index():
-    return render_template('dashboard.html')
-
-@app.route('/joystick_debug')
-def joystick_debug():
-    return render_template('joystick_debug.html')
+def index(): return render_template('dashboard.html')
 
 @app.route('/video_feed')
 def video_feed():
-    """Returns the multipart video stream from GStreamer."""
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=--frame')
-# -------------------------------
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=--frame')
 
-# --- WebSocket Handlers ---
 @socketio.on('connect')
 def handle_connect():
     global connected_clients_count, ser
     connected_clients_count += 1
-    print(f"Client connected. Total clients: {connected_clients_count}")
     if ser:
         socketio.emit('serial_status', {'status': 'connected'})
         if connected_clients_count == 1:
-            try:
-                start_command = b'{"T": 131, "cmd": 1}\n'
-                ser.write(start_command)
-                print(f"First client. Sent ROVER start stream command.")
-            except Exception as e:
-                print(f"Failed to send rover start command: {e}")
+            try: ser.write(b'{"T": 131, "cmd": 1}\n')
+            except: pass
     else:
-        socketio.emit('serial_status', {'status': 'disconnected', 'error': 'Serial port not initialized.'})
+        socketio.emit('serial_status', {'status': 'disconnected'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     global connected_clients_count, ser, gimbal
     connected_clients_count -= 1
-    print(f"Client disconnected. Total clients: {connected_clients_count}")
     if connected_clients_count == 0:
         if ser:
-            try:
-                stop_command = b'{"T": 131, "cmd": 0}\n'
-                ser.write(stop_command)
-                print(f"Last client. Sent ROVER stop stream command.")
-            except Exception as e:
-                print(f"Failed to send rover stop command: {e}")
+            try: ser.write(b'{"T": 131, "cmd": 0}\n')
+            except: pass
         if gimbal:
-            try:
-                gimbal.send_gimbal_speed(0, 0)
-                print("Last client. Sent GIMBAL stop command.")
-            except Exception as e:
-                print(f"Failed to send gimbal stop command: {e}")
-
+            try: gimbal.send_gimbal_speed(0, 0)
+            except: pass
 
 @socketio.on('control')
-def handle_control_event(data):
+def handle_control(data):
     global ser
     if ser:
         try:
-            command = {"T": 1, "L": data['L'], "R": data['R']}
-            json_command = json.dumps(command) + '\n'
-            ser.write(json_command.encode('utf-8'))
-        except Exception as e:
-            print(f"Error sending rover control command: {e}")
-    else:
-        print("Rover control event received, but serial port is not available.")
+            cmd = json.dumps({"T": 1, "L": data['L'], "R": data['R']}) + '\n'
+            ser.write(cmd.encode('utf-8'))
+        except: pass
 
 @socketio.on('joystick_command')
-def handle_joystick_command(data):
+def handle_joystick(data):
     global gimbal
     if gimbal:
         try:
-            yaw_val = data.get('yaw', 0.0)
-            pitch_val = data.get('pitch', 0.0)
-            yaw_speed = int(yaw_val * 100)
-            pitch_speed = int(pitch_val * 100)
-            gimbal.send_gimbal_speed(yaw_speed, pitch_speed)
-        except Exception as e:
-            print(f"Error in gimbal joystick command handler: {e}")
-    else:
-        print("Gimbal control event received, but gimbal is not connected.")
+            gimbal.send_gimbal_speed(int(data.get('yaw',0)*100), int(data.get('pitch',0)*100))
+        except: pass
 
 @socketio.on('set_arm_state')
 def handle_arm_state(data):
     global gimbal
-    if not gimbal:
-        return
-
+    if not gimbal: return
     is_armed = data.get('state', False)
     
-    # Logic: Only toggle if the state doesn't match the desired outcome
+    # Auto-Recording Logic
     if is_armed and not gimbal.is_recording:
-        print("System ARMED: Starting Recording...")
+        print("ARMED: Starting Recording")
         gimbal.toggle_recording()
-        
     elif not is_armed and gimbal.is_recording:
-        print("System DISARMED: Stopping Recording...")
+        print("DISARMED: Stopping Recording")
         gimbal.toggle_recording()
 
-# --- Unified Cleanup Function ---
 def cleanup():
-    """Gracefully shut down all hardware connections."""
     global ser, gimbal, stream_process
-    
-    print("\nShutting down...")
-    
-    # 1. Stop GStreamer
-    if stream_process:
-        print(f"Terminating GStreamer process (PID: {stream_process.pid})...")
-        stream_process.terminate()
-        stream_process.wait()
-        print("GStreamer process terminated.")
-    
-    # 2. Stop Rover
-    if ser:
-        try:
-            ser.write(b'{"T": 131, "cmd": 0}\n')
-            print("Sent rover stop command.")
-        except Exception as e:
-            print(f"Error stopping rover: {e}")
-    
-    # 3. Stop Gimbal
-    if gimbal:
-        try:
-            gimbal.send_gimbal_speed(0, 0)
-            print("Sent gimbal stop command.")
-        except Exception as e:
-            print(f"Error stopping gimbal: {e}")
-    
-    print("Server shut down.")
-# -------------------------------------
+    if stream_process: stream_process.terminate()
+    if ser: ser.write(b'{"T": 131, "cmd": 0}\n')
+    if gimbal: gimbal.send_gimbal_speed(0, 0)
 
-# --- Main Execution ---
 if __name__ == '__main__':
-    
-    # --- THIS IS THE CLEAN SHUTDOWN HANDLER ---
     atexit.register(cleanup)
     signal.signal(signal.SIGTERM, lambda s, f: cleanup())
     
     if init_serial():
         socketio.start_background_task(read_serial_thread)
-        print("Rover serial thread started.")
     
     try:
         gimbal = SiyiTCPProtocol(GIMBAL_IP, GIMBAL_PORT)
@@ -492,20 +366,8 @@ if __name__ == '__main__':
             gimbal.request_attitude_stream()
             socketio.start_background_task(gimbal.receive_loop)
             socketio.start_background_task(heartbeat_loop, gimbal)
-            print("Gimbal TCP threads started.")
-        else:
-            print("🛑 WARNING: Failed to connect to gimbal. Proceeding without gimbal.")
-            gimbal = None
-    except Exception as e:
-        print(f"🛑 WARNING: Gimbal connection failed: {e}. Proceeding without gimbal.")
-        gimbal = None
+    except: gimbal = None
 
-    # --- 4. Start GStreamer ---
     start_streamer()
-
-    # --- 5. Start Web Server ---
-    print(f"🚀 Starting unified server at http://0.0.0.0:5000")
-    if not stream_process:
-         print("🛑 WARNING: GStreamer failed to start. Video feed will not be available.")
-    
+    print("🚀 Server started at http://0.0.0.0:5000")
     socketio.run(app, host='0.0.0.0', port=5000)
