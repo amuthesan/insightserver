@@ -320,6 +320,7 @@ def init_serial():
     global ser
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        ser.reset_input_buffer() # Flush old data
         print(f"✅ Opened rover serial port {SERIAL_PORT}.")
         return True
     except Exception as e:
@@ -601,18 +602,25 @@ def read_serial_thread():
     while True:
         try:
             if ser and ser.in_waiting > 0:
-                line = ser.readline().decode('utf-8').strip()
-                # Basic validation: ensure it looks like a JSON object
-                if line and line.startswith('{') and line.endswith('}'):
+                # Read line with error ignoring
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                
+                # Robust Extraction: Find first '{' and last '}'
+                start = line.find('{')
+                end = line.rfind('}')
+                
+                if start != -1 and end != -1 and end > start:
+                    json_str = line[start:end+1]
+                    
                     # Rate Limit: Max 10Hz (0.1s)
                     now = time.time()
                     if now - last_emit > 0.1:
                         try:
-                            data = json.loads(line)
+                            data = json.loads(json_str)
                             socketio.emit('imu_data', data)
                             last_emit = now
                         except json.JSONDecodeError:
-                            logging.warning(f"Invalid JSON from serial: {line}")
+                            logging.warning(f"Invalid JSON from serial: {json_str}")
             else:
                 socketio.sleep(0.01)
         except Exception as e:
