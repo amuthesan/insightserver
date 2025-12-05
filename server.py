@@ -158,6 +158,7 @@ class SiyiTCPProtocol:
         self.seq = 0
         self.lock = threading.Lock() 
         self.is_recording = False # Internal state tracker
+        self.last_gimbal_emit = 0 # Rate limiter
 
     def connect(self):
         try:
@@ -263,12 +264,16 @@ class SiyiTCPProtocol:
         data_len = struct.unpack('<H', packet[3:5])[0]
         data = packet[8:8 + data_len]
         if cmd_id == 0x0D and data_len >= 6:
-            yaw_raw, pitch_raw, roll_raw = struct.unpack('<hhh', data[0:6])
-            socketio.emit('gimbal_attitude', {
-                'pitch': pitch_raw / 10.0,
-                'roll': roll_raw / 10.0,
-                'yaw': yaw_raw / 10.0
-            })
+            # Rate Limit: Max 10Hz (0.1s)
+            now = time.time()
+            if now - self.last_gimbal_emit > 0.1:
+                yaw_raw, pitch_raw, roll_raw = struct.unpack('<hhh', data[0:6])
+                socketio.emit('gimbal_attitude', {
+                    'pitch': pitch_raw / 10.0,
+                    'roll': roll_raw / 10.0,
+                    'yaw': yaw_raw / 10.0
+                })
+                self.last_gimbal_emit = now
 
 # --- Background Threads ---
 def heartbeat_loop(gimbal_obj):
@@ -281,32 +286,6 @@ def heartbeat_loop(gimbal_obj):
 
 def read_serial_thread():
     global ser
-    buffer = ""
-    while True:
-        if ser:
-            try:
-                byte_in = ser.read(1)
-                if byte_in:
-                    try:
-                        char_in = byte_in.decode('utf-8')
-                        if char_in == '{': buffer = '{'
-                        elif buffer:
-                            buffer += char_in
-                            if char_in == '}':
-                                try:
-                                    data = json.loads(buffer)
-                                    if data.get("T") == 1001:
-                                        roll = data.get("r", 0.0)
-                                        pitch = data.get("p", 0.0)
-                                        voltage = data.get("v", 0.0)
-                                        percent = max(0, min(100, ((voltage - 10.5) / 2.1) * 100))
-                                        socketio.emit('imu_data', {
-                                            'roll': roll,
-                                            'pitch': pitch,
-                                            'voltage': voltage,
-                                            'battery_percent': percent
-                                        })
-                                    buffer = ""
                                 except json.JSONDecodeError: buffer = "" 
                     except UnicodeDecodeError: buffer = ""
             except Exception:
