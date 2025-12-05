@@ -464,6 +464,24 @@ def cleanup():
     if gimbal: gimbal.send_gimbal_speed(0, 0)
     if servo: servo.close()
 
+    print("🚀 Server started at http://0.0.0.0:5000")
+    socketio.run(app, host='0.0.0.0', port=5000)
+
+# --- System Monitoring ---
+def get_cpu_temp():
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            temp = float(f.read()) / 1000.0
+            return temp
+    except:
+        return 0.0 # Fallback/Mock
+
+def system_monitor_thread():
+    while True:
+        temp = get_cpu_temp()
+        socketio.emit('system_data', {'cpu_temp': temp})
+        socketio.sleep(2)
+
 if __name__ == '__main__':
     atexit.register(cleanup)
     signal.signal(signal.SIGTERM, lambda s, f: cleanup())
@@ -473,6 +491,8 @@ if __name__ == '__main__':
     
     if init_serial():
         socketio.start_background_task(read_serial_thread)
+    
+    socketio.start_background_task(system_monitor_thread) # Start monitoring
     
     try:
         gimbal = SiyiTCPProtocol(GIMBAL_IP, GIMBAL_PORT)

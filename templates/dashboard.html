@@ -379,6 +379,52 @@
                 el.gYaw.textContent = (d.yaw || 0).toFixed(1) + '°';
                 el.gPit.textContent = (d.pitch || 0).toFixed(1) + '°';
             });
+
+            state.socket.on('system_data', (d) => {
+                const t = d.cpu_temp || 0;
+                const tElem = document.getElementById('cpu-temp');
+                const tBar = document.getElementById('temp-bar');
+
+                if (tElem && tBar) {
+                    tElem.textContent = t.toFixed(1) + '°C';
+                    // Scale 0-100C
+                    tBar.style.width = clamp(t, 0, 100) + '%';
+
+                    if (t > 80) {
+                        tBar.className = 'bg-red-600 h-2.5 rounded-full animate-pulse';
+                        tElem.className = 'text-xs font-mono text-red-600 font-bold';
+                    } else if (t > 60) {
+                        tBar.className = 'bg-yellow-500 h-2.5 rounded-full';
+                        tElem.className = 'text-xs font-mono text-yellow-600';
+                    } else {
+                        tBar.className = 'bg-blue-600 h-2.5 rounded-full';
+                        tElem.className = 'text-xs font-mono text-gray-500';
+                    }
+                }
+            });
+
+            state.socket.on('system_data', (d) => {
+                const t = d.cpu_temp || 0;
+                const tElem = document.getElementById('cpu-temp');
+                const tBar = document.getElementById('temp-bar');
+
+                if (tElem && tBar) {
+                    tElem.textContent = t.toFixed(1) + '°C';
+                    // Scale 0-100C
+                    tBar.style.width = clamp(t, 0, 100) + '%';
+
+                    if (t > 80) {
+                        tBar.className = 'bg-red-600 h-2.5 rounded-full animate-pulse';
+                        tElem.className = 'text-xs font-mono text-red-600 font-bold';
+                    } else if (t > 60) {
+                        tBar.className = 'bg-yellow-500 h-2.5 rounded-full';
+                        tElem.className = 'text-xs font-mono text-yellow-600';
+                    } else {
+                        tBar.className = 'bg-blue-600 h-2.5 rounded-full';
+                        tElem.className = 'text-xs font-mono text-gray-500';
+                    }
+                }
+            });
         }
 
         // GAME LOOP
