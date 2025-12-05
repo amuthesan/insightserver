@@ -284,16 +284,6 @@ def heartbeat_loop(gimbal_obj):
         except Exception as e:
             break
 
-def read_serial_thread():
-    global ser
-                                except json.JSONDecodeError: buffer = "" 
-                    except UnicodeDecodeError: buffer = ""
-            except Exception:
-                ser.close()
-                ser = None
-        else:
-            socketio.sleep(2) 
-            init_serial()
 
 def init_serial():
     global ser
