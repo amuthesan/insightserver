@@ -429,9 +429,12 @@ def start_streamer():
         def log_errors():
             if stream_process and stream_process.stderr:
                 for line in stream_process.stderr: 
-                    msg = f"[gst] {line.decode().strip()}"
-                    print(msg)
-                    logging.error(msg)
+                    msg = line.decode('utf-8', errors='ignore').strip()
+                    # Silence common GStreamer INFO/Camera noise
+                    if "INFO" in msg or "Camera" in msg or "RPI" in msg or "IPAProxy" in msg:
+                        continue
+                    print(f"[gst] {msg}")
+                    logging.error(f"[gst] {msg}")
         socketio.start_background_task(log_errors)
     except Exception as e:
         logging.error(f"GStreamer failed: {e}")
@@ -556,8 +559,7 @@ def cleanup():
     if gimbal: gimbal.send_gimbal_speed(0, 0)
     if servo: servo.close()
 
-    print("🚀 Server started at http://0.0.0.0:5000")
-    socketio.run(app, host='0.0.0.0', port=5000)
+    print("🛑 Server stopping...")
 
 # --- System Monitoring ---
 def get_cpu_temp():
@@ -598,8 +600,14 @@ def read_serial_thread():
                             data = json.loads(json_str)
                             socketio.emit('imu_data', data)
                             last_emit = now
+                            # Debug Success (throttled)
+                            if int(now) % 5 == 0: logging.info("✅ Valid IMU Data")
                         except json.JSONDecodeError:
                             logging.warning(f"Invalid JSON from serial: {json_str}")
+                else:
+                    # Debug: Log ignored lines to see what's coming in
+                    if line: logging.info(f"IGNORED SERIAL: {line}")
+
             else:
                 socketio.sleep(0.01)
         except Exception as e:
@@ -632,4 +640,10 @@ if __name__ == '__main__':
 
     start_streamer()
     print("🚀 Server started at http://0.0.0.0:5000")
-    socketio.run(app, host='0.0.0.0', port=5000)
+    
+    try:
+        socketio.run(app, host='0.0.0.0', port=5000)
+    except Exception as e:
+        logging.critical(f"CRITICAL SERVER CRASH: {e}")
+        print(f"🔥 CRITICAL SERVER CRASH: {e}")
+        raise e
